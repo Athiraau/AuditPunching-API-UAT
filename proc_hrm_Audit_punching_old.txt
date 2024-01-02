@@ -1,0 +1,721 @@
+create or replace procedure proc_hrm_Audit_punching(--p_flag     in number,
+                                                      p_flag     in varchar2,
+                                                      p_data     in varchar2,
+                                                      p_OutData  out varchar2,
+                                                      p_errorMsg out varchar2,
+                                                      p_errorStat out number) AS
+  v_cnt        number default 0;
+  br           number;
+  ar_ea        number;
+  v_spliter_a  array;
+  v_spliter_b  array;
+  seq1         number;
+  cndid        number;
+  cno          number;
+  cno2         number;
+  entrdt       number;
+  v_upload_cnt number;
+  v_ErrDesc    tbl_hrms_error_dtl.error_description%type;
+  v_ErrDtl     tbl_hrms_error_dtl.error_details%type;
+  v_ErrID      tbl_hrms_error_dtl.error_id%type;
+  dp           number;
+  dm_seq       varchar(20);
+  seqpt        number;
+  refno        varchar(20);
+  start_date   date;
+  Till_DT      date;
+  net          number;
+  arrear       number;
+  cnt          number;
+  docname      varchar2(1000);
+  auto_id      number;
+  PO_auto_id   NUMBER;
+  E_post_id    number;
+
+  v_empbranch    number;
+  v_empname     number;
+  HOMob         number;
+  HOEmail      varchar2(50);
+  branch       number;
+  reg          number;
+  zone         number;
+  reqid        number;
+  l_cl_var1 bLOB;
+  l_cl_var2 bLOB;
+  l_cl_var3 bLOB;
+  C_id      number;
+  PO        NUMBER;
+  doc_cnt  number;
+  dep  number:=0;
+  code varchar2(500);
+
+
+
+  times varchar2(15);
+  empid  number;
+  brn number;
+  cntour number;
+  ar_br number;
+  rr_br number;
+  ar_br1 number;
+  rr_br1 number;
+  epost number;
+  edep number;
+  cn number;
+  punch number;
+  assign_br number := 0;
+  audReg number;
+  audPunReg number;
+  amb_count number;
+  EmpBrArea number;
+  PunchBrArea number;
+  cnPunchBrArea number;
+  EmpBrzon number;
+  PunchBrzon number;
+  pmt_val number;
+  rm_cnt number;
+  ah_cnt number;
+  br_cnt number;
+  ar_id number;
+  visit_cnt number;
+  even_cnt number;
+  re_id number;
+  zoneid number;
+  m_limit number;
+  cnt1 number;
+  cnck number;
+  cntp2 number;
+  cntp1 number;
+  cntp5 number;
+  alertcnt number;
+  oversee_general number ;
+  oversee_b4_count number;
+  oversee_after_count number;
+  competitor_cnt number;
+begin
+  v_spliter_a := splitstr(p_data, 'µ');
+  --emp + "~" + doc1 + "~" + doc2 + "~" + des1 + "~" + sess;
+
+      if p_flag='hrm_Audit_punching' then
+        refno:=v_spliter_a(5);
+   empid:= v_spliter_a(1);
+   br:=v_spliter_a(3);
+   punch:=v_spliter_a(2);
+   select tr.parmtr_value into dm_seq from general_parameter tr where tr.firm_id=1 and tr.parmtr_id=2306;
+   if refno = dm_seq then
+  select to_char(sysdate,'HH24:MI:ss') into times from dual;
+  select e.branch_id,e.post_id,e.department_id into brn,epost,edep from employee_master e where e.emp_code=empid;
+   select b.area_id,b.reg_id into ar_br,rr_br from branch_dtl_new b where b.BRANCH_ID=brn;
+   select b.area_id,b.reg_id into ar_br1,rr_br1 from branch_dtl_new b where b.BRANCH_ID=br;
+
+
+if empid <>50065 then
+
+   select count(*) into cn from TBL_AUDIT_CONS_MASTER t where t.assign_emp is not null and t.veify_stat=0 and t.assign_emp = empid and t.branch_id = br;
+   if cn > 0 and punch=1 then
+     select distinct t.branch_id into assign_br from TBL_AUDIT_CONS_MASTER t where t.assign_emp is not null and t.veify_stat=0 and t.assign_emp = empid and t.branch_id = br;
+   else
+     select count(*) into cn from TBL_AUDIT_CONS_MASTER t where t.assign_emp is not null and t.veify_stat=1 and t.assign_emp = empid and t.branch_id = br;
+       if cn>0 and punch=2 then
+         select distinct t.branch_id into assign_br from TBL_AUDIT_CONS_MASTER t where t.assign_emp is not null and t.veify_stat=1 and t.assign_emp = empid and t.branch_id = br;
+       end if;
+   end if;
+
+  if epost = 136 then -- Ajmal--107400--AH Punch block
+        select count(t1.branch_id) into cnt
+        from TBL_PAN_MODIFY_JOB t1, dms.DEPOSIT_PAN_DETAIL t2 where t1.cust_id = t2.cust_id and t1.verify_dt is null
+        and t1.branch_id = br;
+        if cnt > 0 then
+          p_errorMsg       := 'You Cant Punch Here.. Complete PAN Verification..!!';
+          Return;
+        end if;
+      end if;
+
+   if epost in (136,197,321,-248)   then
+     if ar_br<>ar_br1 and br <> assign_br then
+       p_errorMsg:='Punch in your own area branches';
+       p_errorStat:=0;
+       return;
+     end if;
+   end if;
+
+   if epost in (199, 621,-249) and edep in (211) then
+     select b.region_id into audReg from AUDIT_REGION_dtl b where b.branch_id=brn;
+     select b.region_id into audPunReg from AUDIT_REGION_dtl b where b.branch_id=br;
+     if audReg <> audPunReg and br <> assign_br then
+       p_errorMsg:='Punch in your own region branches';
+       p_errorStat:=0;
+       return;
+     end if;
+   end if;
+
+       if epost in (199,535,282,247,322,245,432,434,435,436,437,454,540,447,570,571,572,602,621,803,-249) and edep not in (156, 211)  then
+   if rr_br<>rr_br1 and epost not in (199,-249) then
+    p_errorMsg:='Punch in your own region branches';
+       p_errorStat:=0;
+    return;
+   elsif epost in (199,-249) and br <> assign_br and rr_br<>rr_br1 then
+    p_errorMsg:='Punch in your own region branches';
+       p_errorStat:=0;
+    return;
+   end if;
+   end if;
+
+   /*   if epost in (202,210,440,347)   then
+
+
+      Select nvl(ad.area_id,0) into EmpBrArea From aso_branch_master ad Where ad.branch_id = brn;
+    Select count(ad.area_id) into cnPunchBrArea From aso_branch_master ad Where ad.branch_id = br;
+    if cnPunchBrArea=0 then
+    msg:='ASO BRANCH does not exist';
+ return;
+ end if;
+
+    Select nvl(ad.area_id,0) into PunchBrArea From aso_branch_master ad Where ad.branch_id = br;
+
+
+    if PunchBrArea <> EmpBrArea Then
+
+   msg:='Punch in your own ASO area branches';
+ return;
+
+    end if;
+    end if;*/
+
+
+    if epost in (236,274)   then
+
+
+      Select nvl(ad.area_id,0) into EmpBrArea From mis.ams_area_detail ad Where ad.branch_id = brn;
+    Select count(ad.area_id) into cnPunchBrArea From mis.ams_area_detail ad Where ad.branch_id = br;
+    if cnPunchBrArea=0 then
+    p_errorMsg:='ASO BRANCH does not exist';
+       p_errorStat:=0;
+ return;
+ end if;
+
+    Select nvl(ad.area_id,0) into PunchBrArea From mis.ams_area_detail ad Where ad.branch_id = br;
+
+
+    if PunchBrArea <> EmpBrArea Then
+
+   p_errorMsg:='Punch in your own Security area branches';
+       p_errorStat:=0;
+ return;
+
+    end if;
+    end if;
+
+   /* if edep in (330,517) then
+
+    Select nvl(ad.zonal_id,0) into EmpBrzon From branch_dtl_new ad Where ad.branch_id = brn;
+          Select nvl(ad.zonal_id,0) into PunchBrzon From branch_dtl_new ad Where ad.branch_id = br;
+
+
+     If PunchBrzon<>EmpBrzon Then
+     msg:='Punch in your own Zonal branches';
+ return;
+     end if;
+    end if;*/
+
+    -----------------------new alert,alert maben added------------
+    /*if edep in(330,517) then
+
+    Select nvl(ad.REGION_ID,0) into EmpBrzon From aa_branch_detail ad Where ad.BRANCH_ID = brn;
+    Select nvl(ad.REGION_ID,0) into PunchBrzon From aa_branch_detail ad Where ad.BRANCH_ID = br;
+
+
+     If PunchBrzon<>EmpBrzon Then
+     msg:='Punch in your own region branches';
+ return;
+     end if;
+    end if;*/
+    ----------end----------------------
+
+      if epost in (237,279,349)   then
+ if epost in (237) then
+
+    Select nvl(ad.zonal_id,0) into EmpBrzon From branch_dtl_new ad Where ad.branch_id = brn;
+          Select nvl(ad.zonal_id,0) into PunchBrzon From branch_dtl_new ad Where ad.branch_id = br;
+
+
+     If PunchBrzon<>EmpBrzon Then
+     p_errorMsg:='Punch in your own Zonal branches';
+       p_errorStat:=0;
+ return;
+     end if;
+     else
+
+
+      /*Select nvl(ad.region_id,0) into EmpBrArea From aso_branch_master ad Where ad.branch_id = brn;
+    Select nvl(ad.region_id,0) into PunchBrArea From aso_branch_master ad Where ad.branch_id = br;*/
+
+     Select nvl(r.region_id,0) into EmpBrArea From mis.ams_area_detail ad,mis.ams_region_detail r Where ad.branch_id = brn and ad.area_id=r.division_id;
+          Select nvl(r.region_id,0) into PunchBrArea From mis.ams_area_detail ad,mis.ams_region_detail r Where ad.branch_id = br and ad.area_id=r.division_id;
+
+    if EmpBrArea <> PunchBrArea Then
+
+   p_errorMsg:='Punch in your own region branches';
+       p_errorStat:=0;
+ return;
+
+    end if;
+    end if;
+     end if;
+
+   select count(h.to_branch) into cntour from hrm_tour_dtl h where h.emp_code=empid and to_date(sysdate) between h.from_dt and h.to_dt and h.tour_id=1 and h.to_branch is not null and h.to_branch=br ;
+
+if empid>9999 then
+  if cntour=0 and  br<>brn and br <> assign_br and ((epost not in (58,61,67,69,73,85,248,309,324,349,202,210,440,136,236,237,247,197,321,347,346,274,279,199,535,248,324,282,322,366,426,69,309,432,434,435,436,437,454,540,447,570,571,572,602,621,803,-248,-249,-36)) and  edep not in (4,32,178,188,20,330,517,180,23,18,651)) then
+  p_errorMsg:='Your tour is not assigned to this branch';
+       p_errorStat:=0;
+ return;
+  end if;
+end if;
+
+  if punch=1 then
+
+  -------------------101448---AH-RM-----Branch Inspection Begin-------------------------
+    if (epost = 199 and edep = 280) or (epost = 136) then
+      select t.parmtr_value into pmt_val from GENERAL_PARAMETER t where firm_id = 1 and parmtr_id = 260 and module_id = 11;
+      if pmt_val=1 then
+       select count(*) into rm_cnt from mana0809.employee_master em where em.post_id=199 and em.department_id=280 and em.emp_code=empid;
+       select count(*) into ah_cnt from mana0809.employee_master em where em.post_id=136 and em.emp_code=empid;
+       if ah_cnt > 0 then
+        select count(1) into cnt from mana0809.attend ta where ta.emp_code = empid and ta.curr_date >= trunc(sysdate, 'mm') and ta.m_time is not null and ta.m_branch = brn;
+         if cnt >=1 then
+            select bn.area_id  into ar_id  from mana0809.employee_master em, mana0809.branch_dtl_new bn where em.branch_id = bn.BRANCH_ID and em.emp_code = empid;
+            select count(bn.BRANCH_ID) into br_cnt from mana0809.branch_dtl_new bn where bn.status_id = 1 and bn.BRANCH_ID >0 and bn.area_id = ar_id;
+            select count(distinct ta.m_branch) into visit_cnt from mana0809.attend ta where ta.emp_code = empid and ta.curr_date >= trunc(sysdate, 'mm')
+              and ta.m_time is not null and ta.m_branch in(select bn.BRANCH_ID from mana0809.branch_dtl_new bn where bn.area_id = ar_id and bn.BRANCH_ID>0);
+           if visit_cnt < br_cnt then
+               ---punching block
+               p_errorMsg       := 'You Cant Punch Here.. Complete Branch Visit..!!';
+       p_errorStat:=0;
+               Return;
+            end if;
+          end if;
+       end if;
+
+   if rm_cnt > 0 then
+      select Mod(to_number(to_char(sysdate,'MM')),2) into even_cnt from dual;
+      select bn.reg_id into re_id from mana0809.employee_master em, mana0809.branch_dtl_new bn where em.branch_id = bn.BRANCH_ID and em.emp_code = empid;
+      select tf.fzm_id into zoneid from tbl_fzm_master tf where tf.region_id=re_id;
+      select count(1) into br_cnt from branch_dtl_new b where b.status_id = 1 and b.BRANCH_ID >0 and b.reg_id =re_id;
+      select t.month_limit into m_limit from tbl_visit_month_limit t where t.post_id=199 and zoneid between t.id_from and t.id_to and br_cnt between t.limit_from and t.limit_to;
+       if even_cnt=0 and m_limit=2 then
+          select count(1) into cnt1 from mana0809.attend ta where ta.emp_code = empid and ta.curr_date >= trunc(add_months(sysdate,-1), 'mm') and ta.m_time is not null and ta.m_branch = brn;
+          select count(distinct ta.m_branch) into visit_cnt from mana0809.attend ta where ta.emp_code = empid and ta.curr_date >= trunc(add_months(sysdate,-1), 'mm') and ta.m_time is not null and ta.m_branch in(select bn.BRANCH_ID from mana0809.branch_dtl_new bn where bn.reg_id = re_id and bn.BRANCH_ID>0);
+       else
+          select count(1) into cnt1 from mana0809.attend ta where ta.emp_code = empid and ta.curr_date >= trunc(sysdate, 'mm') and ta.m_time is not null and ta.m_branch = brn;
+          select count(distinct ta.m_branch) into visit_cnt from mana0809.attend ta where ta.emp_code = empid and ta.curr_date >= trunc(sysdate, 'mm') and ta.m_time is not null and ta.m_branch in(select bn.BRANCH_ID from mana0809.branch_dtl_new bn where bn.reg_id = re_id and bn.BRANCH_ID>0);
+       end if;
+          if cnt1 >=1 then
+             if visit_cnt < br_cnt then
+                   ---punching block
+                   p_errorMsg       := 'You Cant Punch Here.. Complete Branch Visit..!!';
+       p_errorStat:=0;
+                   Return;
+             end if;
+          end if;
+       end if;
+      end if;
+    end if;
+    -------------------101448---AH-RM-----Branch Inspection end-------------------------
+
+   if empid<9999 then
+   select count(*) into cnck from hrm_audit_punch t where t.emp_code=empid and  to_char(t.curr_date,'mm/yyyy')=to_char(sysdate,'mm/yyyy') and t.m_branch=br;
+     /*if TO_CHAR(sysdate, 'D') =2  then
+   select count(*) into cnck from hrm_audit_punch t where t.emp_code=empid and to_date(t.curr_date)=to_date(sysdate)-2 and t.m_branch=br;
+   else
+   select count(*) into cnck from hrm_audit_punch t where t.emp_code=empid and to_date(t.curr_date)=to_date(sysdate)-1 and t.m_branch=br;
+   end if;*/
+  --bilu
+
+  /* if cnck=0 then
+   select bt.in_time into brst from branch_time bt where bt.branch_id=br ;
+      if times>brst then
+       msg:='you are too late in first visit of this branch';
+   return;
+   end if;
+   end if;*/
+
+     end if;
+
+  select count(p.emp_code) into cntp5 from hrm_audit_punch p where p.emp_code=empid  and p.m_time is not null and p.e_time is null and p.curr_date=to_date(sysdate) and p.m_branch<>br;
+ if cntp5>0 then
+ p_errorMsg:='Departure not marked in previous visit branch';
+       p_errorStat:=0;
+ return;
+ end if;
+
+  select count(p.emp_code) into cntp1 from hrm_audit_punch p where p.emp_code=empid  and p.m_time is not null and p.e_time is null and p.curr_date=to_date(sysdate) and p.m_branch=br;
+ if cntp1>0 then
+ p_errorMsg:='Already punched Arrival in this branch';
+       p_errorStat:=0;
+ return;
+ end if;
+      select count(p.emp_code) into cnt from hrm_audit_punch p where p.emp_code=empid  and p.e_time is null and p.m_time is not null and p.curr_date=to_date(sysdate);
+
+      if cnt=0 then
+         if epost=210 then
+             Select nvl(ad.area_id,0) into PunchBrArea From aso_branch_master ad Where ad.branch_id = br;
+                 insert into mis.ARO_MARK_DTL(PARTICULAR_ID,AREA_ID,BRANCH_ID,TRA_DATE,DESCRIPTION )values(7,PunchBrArea,br,sysdate,'AUDIT PUNCH');
+         end if;
+         insert into hrm_audit_punch (emp_code,curr_date,m_time,m_branch,e_time,e_branch,branch_id)
+         values (empid,to_date(sysdate),times,br,null,0,brn);
+         insert into DMS.hrm_audit_punch (emp_code,curr_date,m_time,m_branch,e_time,e_branch,branch_id)
+         values (empid,to_date(sysdate),times,br,null,0,brn);
+
+        p_OutData  := 'update DMS.hrm_audit_punch t
+         set t.M_photo = :SBP
+       where t.emp_code =' || empid ||' and t.m_branch=' || br ||' and t.curr_date=to_date(sysdate) and t.e_time is null and t.m_time is not null';
+
+
+
+
+         p_errorMsg:='Punch Successful';
+       p_errorStat:=1;
+     else
+         p_errorMsg:='Departure is not reported in previous branch';
+       p_errorStat:=0;
+     end if;
+ end if;
+
+ if punch=2 then
+
+  ------- Arshad --- CRF 102406 --- Start
+  select p.parmtr_value into cnt1 from general_parameter p where p.firm_id = 1 and p.parmtr_id = 285 and p.module_id = 11;
+
+  if ((epost in (248,309)  and edep = 4) or (epost in (621)  and edep=211)) and cnt1 = 1 then
+     select count(*) into cn from TBL_MA_COMMON_ALERT t where t.module_id=14 and t.status=1 and t.emp_code=empid and to_date(t.entr_dt) = to_date(sysdate);
+     if cn >= 1 then
+        p_errorMsg := 'You have exit Block. Please complete cash verification.';
+       p_errorStat:=0;
+        return;
+     end if;
+  end if;
+ ------- Arshad --- CRF 102406 --- End
+
+ select count(p.emp_code) into cntp2 from hrm_audit_punch p where p.emp_code=empid  and p.e_time is not null and p.curr_date=to_date(sysdate) and p.m_branch=br;
+ /*if cntp2>0 then
+ msg:='Already punched in this branch';
+ return;
+ end if;*/
+    select count(p.emp_code) into cn from hrm_audit_punch p where p.emp_code=empid  and p.e_time is null and p.m_time is not null and p.curr_date=to_date(sysdate) and p.m_branch=br;
+     if cn>=1 then
+        select count(*) into alertcnt  from risk_master rm, branch_master br, aa_branch_master ar where rm.branch_id = br.branch_id   and br.branch_id = ar.branch_id   and rm.alert_status = 1 and br.branch_id=br;
+        if edep=330 then
+           if alertcnt=0 then
+           update hrm_audit_punch t set t.e_time=times,t.e_branch=br where t.emp_code=empid and t.m_branch=br and t.curr_date=to_date(sysdate) and t.e_time is null /*and t.m_time<=times*/ and t.m_time is not null ;
+            update dms.hrm_audit_punch t set t.e_time=times,t.e_branch=br where t.emp_code=empid and t.m_branch=br and t.curr_date=to_date(sysdate) and t.e_time is null /*and t.m_time<=times*/ and t.m_time is not null ;
+            p_OutData  := 'update dms.hrm_audit_punch t
+         set t.e_photo = :SBP
+       where t.emp_code =' || empid ||' and t.e_branch=' || br ||' and t.curr_date=to_date(sysdate) and t.e_time is not null and t.m_time is not null';
+
+           p_errorMsg:='Punch Successful';
+       p_errorStat:=1;
+           else
+           p_errorMsg:='Please Check Receive Alert';
+       p_errorStat:=0;
+           end if;
+        else
+        select t.status_id into cn from branch_master t where t.branch_id=br;
+        if cn <> 10 then
+          if epost in (136,-248) then
+
+          select count(1) into amb_count from tbl_gl_branch_ambience t where t.branch_id=br and t.ah_com is not null;
+
+          elsif epost in (199,-249) then
+
+         select count(1) into amb_count from tbl_gl_branch_ambience t where t.branch_id=br and t.rm_com is not null;
+          elsif edep in (4, 330) then
+           select count(1) into amb_count from tbl_gl_branch_ambience t where t.branch_id = br and t.auditor_com is not null;
+           elsif edep in (651, 23) then
+          select count(1) into amb_count from tbl_gl_branch_ambience t where t.branch_id = br and t.vigil_com is not null;
+
+         else
+         amb_count:=1;
+      end if;
+      else
+        amb_count:=1;
+        end if;
+
+
+    ---------- CRF_101538 Daniya P S Oversee Pending Block.
+    select g.parmtr_value into oversee_general from GENERAL_PARAMETER g where g.parmtr_id = 2227 ;
+     if oversee_general = 1 then
+
+           if epost=136 then  -- AH
+
+           --- B4 PO delivery activities oversee Pending case
+
+             select distinct count(a.actvty_id) into  oversee_b4_count
+              from STATUS_MASTER              t,
+                      tbl_marketing_activity_new a,
+                      branch_dtl_new             b,
+                      tbl_po_master              d
+                where t.module_id = 535
+                  and t.option_id = 1
+                  and a.activity = t.status_id
+                  and a.brid = b.BRANCH_ID
+                  and a.brid = d.branch_id
+                   and  a.brid =   br
+                  and d.status_id in (1,3,8) -- PO Approved
+                  and a.status = 8 ; -- Po approval
+
+
+            --- After  PO delivery activities oversee Pending case
+
+               select distinct count(a.actvty_id) into oversee_after_count
+
+                 from STATUS_MASTER              t,
+                      tbl_marketing_activity_new a,
+                      branch_dtl_new             b,
+                      tbl_po_master              c,
+                      tbl_po_invoice_mst         d
+                where t.module_id = 535
+                  and t.option_id = 1
+                  and a.activity = t.status_id
+                  and a.brid = b.BRANCH_ID
+                  and b.BRANCH_ID = c.branch_id
+                  and c.po_id = d.po_id
+                  and  a.brid =   br
+                  and a.status = 8 -- PO Approval
+                  and d.status_id = 2 ; -- Invoice Paid
+
+           end if;
+
+
+          if epost = 199 then -- RM
+
+           --- B4 PO delivery activities oversee Pending case
+
+          select distinct count(a.actvty_id) into  oversee_b4_count
+
+                  from STATUS_MASTER              t,
+                       tbl_marketing_activity_new a,
+                       TBL_MARKETING_CHECK_DTLS   c,
+                       branch_dtl_new             b,
+                       tbl_po_master              d
+                 where t.module_id = 535
+                   and t.option_id = 1
+                   and a.activity = t.status_id
+                   and a.actvty_id = c.m_activity_id
+                   and a.brid = d.branch_id
+                   and a.brid = b.BRANCH_ID
+                    and  a.brid =   br
+                   and a.status = 2 -- RM GROWTH
+                   and c.status_id = 1 -- AH VERIFIED
+                   and d.status_id in (1,3,8); -- PO Approved
+
+           --- After  PO delivery activities oversee Pending case
+
+          select distinct count(a.actvty_id) into oversee_after_count
+               from STATUS_MASTER              t,
+                    tbl_marketing_activity_new a,
+                    TBL_MARKETING_CHECK_DTLS   c,
+                    branch_dtl_new             b,
+                    tbl_po_master              d,
+                    tbl_po_invoice_mst         e
+              where t.module_id = 535
+                and t.option_id = 1
+                and a.activity = t.status_id
+                and a.actvty_id = c.m_activity_id
+                and a.brid = d.branch_id
+                and d.po_id = e.po_id
+                and c.status_id = 1
+                and a.brid = b.BRANCH_ID
+                and  a.brid =   br
+                and a.status = 2 -- RM growth
+                and e.status_id = 2 -- Invoice Paid
+                and c.status_id = 1; -- AH verified
+
+
+          end if;
+
+         if epost= -36 then  -- FZM
+
+
+         select distinct count(a.actvty_id) into  oversee_b4_count
+                    from STATUS_MASTER              t,
+                         tbl_marketing_activity_new a,
+                         TBL_MARKETING_CHECK_DTLS   c,
+                         branch_dtl_new             b,
+                         tbl_po_master              d,
+                         tbl_po_invoice_mst         e
+                   where t.module_id = 535
+                     and t.option_id = 1
+                     and a.activity = t.status_id
+                     and a.actvty_id = c.m_activity_id
+                     and a.brid = d.branch_id
+                     and d.po_id = e.po_id
+                     and c.status_id = 2 -- RM Verified
+                     and a.brid = b.BRANCH_ID
+                    -- and b.zonal_id = zn_id
+                     and  a.brid =   br
+                     and a.status = 4  -- FZM Growth
+                     and e.status_id = 1 -- Invoice Paid
+                     and c.status_id = 2; -- RM verified
+
+
+         end if;
+         ---Competitor details verification pending check start---
+          if epost=136 then  -- AH
+            select count(*)  into competitor_cnt
+           from mana0809.employee_master e, mana0809.branch_dtl_new br
+          where e.branch_id = br.branch_id
+            and e.status_id = 1
+            and e.emp_code = empid
+            and e.post_id = 136
+            and br.area_id in
+                (select  br.area_id
+                   from mana0809.branch_dtl_new          br,
+                        mana0809.tbl_competitors_dtls t
+                  where t.branch_id = br.BRANCH_ID
+                    and t.status = 0);
+          end if;
+
+          if epost=199 then  -- RM
+             select distinct count(*) into competitor_cnt
+           from mana0809.employee_master e, mana0809.Branch_Detail_New br
+          where e.branch_id = br.branch_id
+            and e.status_id = 1
+            and e.emp_code = empid
+            and e.post_id = 199
+            and br.reg_id in (select distinct br.reg_id
+                                from mana0809.Branch_Detail_New    br,
+                                     mana0809.tbl_competitors_dtls t
+                               where t.branch_id = br.branch_id
+                                 and t.status = 1);
+
+          end if;
+
+          if epost=-36 then  -- fzm
+            select distinct count(*) into competitor_cnt
+           from mana0809.employee_master e, mana0809.Branch_Detail_New br, tbl_fzm_master f1
+          where e.branch_id = br.branch_id
+         and br.reg_id=f1.region_id
+         and e.status_id = 1
+         and e.emp_code = empid
+         and e.post_id = -36
+         and f1.fzm_id in
+             (select f.fzm_id from branch_dtl_new br, mana0809.tbl_competitors_dtls t ,tbl_fzm_master f where
+               br.branch_id=t.branch_id and f.region_id=br.reg_id
+                 and t.status = 2);
+          end if;
+          if empid=18421 then
+
+            select distinct count(*) into competitor_cnt
+        from mana0809.employee_master e, mana0809.Branch_Detail_New br, mana0809.tbl_competitors_dtls t
+       where e.branch_id = br.branch_id
+         and e.status_id = 1
+         and e.emp_code=18421
+         and e.department_id=23
+         and t.status = 3;
+            end if;
+
+          ---Competitor details verification pending check end---
+
+      /*if amb_count=0 and br <> assign_br then
+         msg:='Please Complete Branch Ambience';
+
+         els*/ if oversee_b4_count <> 0 or  oversee_after_count <> 0 then
+             p_errorMsg:='Branch marketing Oversee pending for this branch .Complete the same before leaving branch';
+       p_errorStat:=0;
+           elsif competitor_cnt <> 0 then
+               p_errorMsg:='Competitor details verification pending for this branch. Complete the same before leavinng branch';
+               p_errorStat:=0;
+
+
+         else
+
+           update hrm_audit_punch t set t.e_time=times,t.e_branch=br where t.emp_code=empid and t.m_branch=br and t.curr_date=to_date(sysdate)
+           and t.e_time is null /*and t.m_time<=times*/ and t.m_time is not null ;
+           update dms.hrm_audit_punch t set t.e_time=times,t.e_branch=br where t.emp_code=empid and t.m_branch=br and t.curr_date=to_date(sysdate)
+           and t.e_time is null /*and t.m_time<=times*/ and t.m_time is not null ;
+            p_OutData  := 'update dms.hrm_audit_punch t
+         set t.e_photo = :SBP
+       where t.emp_code =' || empid ||' and t.e_branch=' || br ||' and t.curr_date=to_date(sysdate) and t.e_time is not null and t.m_time is not null and t.e_photo is null';
+
+           p_errorMsg:='Punch Successful';
+       p_errorStat:=1;
+
+           end if;
+
+     end if;
+     ---------------------- CRF_101538 Oversee Pending Block.
+
+      /* if amb_count=0 and br <> assign_br then
+         msg:='Please Complete Branch Ambience';
+        else*//*
+           update hrm_audit_punch t set t.e_time=times,t.e_branch=br where t.emp_code=empid and t.m_branch=br and
+           t.curr_date=to_date(sysdate) and t.e_time is null */
+           /*and t.m_time<=times*/ /*and t.m_time is not null ;*/
+
+
+     /* p_OutData  := 'update mana0809.hrm_audit_punch t
+         set t.e_photo = :SBP
+       where t.emp_code =' || empid ||' and t.m_branch=' || br ||' and t.curr_date=to_date(sysdate) and t.e_time is not null and t.m_time is not null';
+           p_errorMsg:='Punch Successful';
+       p_errorStat:=1;*/
+       --  end if;
+        end if;
+    else
+       p_errorMsg:='Arrival is not reported';
+       p_errorStat:=0;
+    end if;
+ end if;
+
+else
+
+update hrm_audit_punch t set t.e_time=times,t.e_branch=br where t.emp_code=empid and t.curr_date=to_date(sysdate) and t.e_time is null /*and t.m_time<=times*/ and t.m_time is not null ;
+commit;
+ insert into hrm_audit_punch (emp_code,curr_date,m_time,m_branch,e_time,e_branch,branch_id) values (empid,to_date(sysdate),times,br,null,0,brn);
+commit;
+
+      p_OutData  := 'update DMS.hrm_audit_punch t
+         set t.e_photo = :SBP
+       where t.emp_code =' || empid ||' and t.e_branch=' || br ||' and t.curr_date=to_date(sysdate) and t.e_time is not null and t.m_time is not null';
+ p_errorMsg:='Punch Successful';
+       p_errorStat:=1;
+
+end if;
+
+
+
+     /* p_OutData  := 'update mana0809.TBL_TA_BILLS_RTSE t
+         set t.ta_bill = :SBP
+       where t.ta_id =' || v_spliter_a(1);
+      p_errorMsg := ' inserted successfully ';*/
+      else
+
+       p_errorMsg:='You are using older version. Kindly Take application via portal';
+       p_errorStat:=0;
+        end if;
+
+
+end if;
+
+
+
+
+exception
+  when others then
+    -- p_OutData  := '1';
+    -- p_errorMsg := 'please upload file';
+    rollback;
+    v_ErrID := seq_hrms_errorid.nextval;
+    -- p_errorMsg := 'Oops..!Something Went Wrong...!' || v_ErrID;
+    v_ErrDesc := SUBSTR(SQLERRM, 1, 150);
+    v_ErrDtl  := v_ErrDesc || dbms_utility.format_error_backtrace ||
+                 dbms_utility.format_error_stack ||
+                 dbms_utility.format_call_stack;
+    insert into tbl_hrms_error_dtl
+      (error_id, proc_name, error_description, error_details, tra_dt)
+    values
+      (v_ErrID, 'proc_hrm_Audit_punching', v_ErrDesc, v_ErrDtl, sysdate);
+    commit;
+    ----------------------------------------------------------------------------
+end proc_hrm_Audit_punching;
+

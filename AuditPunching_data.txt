@@ -1,0 +1,45 @@
+http://uatapp.manappuram.net/DotnetLite/audit_punch/audit_punch.aspx
+
+
+---------------PROCEDURES: ------------------
+
+
+
+main procedure : proc_audit_punch_data
+-----------------------------------
+
+
+
+GET EMPLOYEE DATA -----------------------------------
+
+FLAG	: 	getempdata
+INDATA	: 	employee code		21721		314453	
+
+PUNCHING --------------------------------------------
+
+FLAG	:	hrm_audit_punching
+INDATA	:	empidµpunching session (1 or 2)µbranch id  µ reference id
+		21721µ1µ217µ6
+		314453µ1µ172µ6
+
+
+
+
+-----------------------------------------------------------------------------
+
+
+##  emp_code:21721(AH)	br_id:3038  post:136	area:723	region:	85 	zonal :12    other branches:217,491,4
+
+##  emp_code:314453(RM)	br_id:1  post:199	area:772	region:	86 	zonal :    other branches:172,174,192
+
+
+  
+
+
+
+
+
+
+select b.area_id,b.reg_id 
+--into ar_br,rr_br 
+from branch_dtl_new b where b.BRANCH_ID=3038
